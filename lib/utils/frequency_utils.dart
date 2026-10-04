@@ -72,25 +72,37 @@ class FrequencyUtils {
     final result = <double>[];
 
     for (final freq in toFreqs) {
-      final logTarget = log(freq.toDouble());
-      double gain;
-
-      if (logTarget <= logFrom.first) {
-        gain = fromGains.first;
-      } else if (logTarget >= logFrom[n - 1]) {
-        gain = fromGains[n - 1];
-      } else {
-        int j = 0;
-        while (j < n - 2 && logTarget > logFrom[j + 1]) {
-          j++;
-        }
-        final t = (logTarget - logFrom[j]) / (logFrom[j + 1] - logFrom[j]);
-        gain = fromGains[j] + (fromGains[j + 1] - fromGains[j]) * t;
-      }
-
+      final gain = _sampleLog(logFrom, fromGains, n, log(freq.toDouble()));
       result.add(gain.clamp(-1500.0, 1500.0));
     }
 
     return result;
+  }
+
+  /// Gain of the curve at an arbitrary frequency (millibels), using the same
+  /// log-frequency linear interpolation as [interpolateGains].
+  static double gainAt(int bandCount, List<double> gains, double hz) {
+    final freqs = getFrequenciesForBandCount(bandCount);
+    final n = min(freqs.length, gains.length);
+    if (n == 0) return 0.0;
+    final logFrom = [for (int j = 0; j < n; j++) log(freqs[j].toDouble())];
+    return _sampleLog(logFrom, gains, n, log(hz)).clamp(-1500.0, 1500.0);
+  }
+
+  static double _sampleLog(
+    List<double> logFrom,
+    List<double> gains,
+    int n,
+    double logTarget,
+  ) {
+    if (logTarget <= logFrom.first) return gains.first;
+    if (logTarget >= logFrom[n - 1]) return gains[n - 1];
+
+    int j = 0;
+    while (j < n - 2 && logTarget > logFrom[j + 1]) {
+      j++;
+    }
+    final t = (logTarget - logFrom[j]) / (logFrom[j + 1] - logFrom[j]);
+    return gains[j] + (gains[j + 1] - gains[j]) * t;
   }
 }

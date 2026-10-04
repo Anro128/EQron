@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:eqron/providers/equalizer_provider.dart';
 import 'package:eqron/services/native_equalizer_bridge.dart';
 import 'package:eqron/theme/app_theme.dart';
+import 'package:eqron/utils/frequency_utils.dart';
 
 /// LED-style level meter for the audio that is currently playing, shown as 28
 /// log-spaced bands. It captures a music player's own audio session (never the
@@ -25,6 +26,9 @@ class _SpectrumAnalyzerState extends ConsumerState<SpectrumAnalyzer>
   static const Duration _staleAfter = Duration(milliseconds: 800);
   static const Duration _healthCheckEvery = Duration(seconds: 3);
   static const double _idle = 0.004;
+  // Band layout of the native analyzer (50 Hz .. 16 kHz, log-spaced)
+  static const double _minHz = 50.0;
+  static const double _maxHz = 16000.0;
 
   final List<double> _target = List.filled(_bandCount, 0.0);
   final List<double> _level = List.filled(_bandCount, 0.0);
@@ -69,13 +73,23 @@ class _SpectrumAnalyzerState extends ConsumerState<SpectrumAnalyzer>
     }
   }
 
+  bool get _powered => ref.read(equalizerProvider).isEnabled;
+
   Future<void> _start() async {
     if (_subscription != null || _starting) return;
+
+    // The spectrum only runs while the main EQ power is on
+    if (!_powered) {
+      if (mounted && _status != 'off') setState(() => _status = 'off');
+      return;
+    }
+
     _starting = true;
     final status = await _bridge.startSpectrum();
     _starting = false;
 
-    if (!mounted) {
+    // The widget may have gone away or the EQ been switched off meanwhile
+    if (!mounted || !_powered) {
       if (status == 'started') _bridge.stopSpectrum();
       return;
     }
@@ -171,8 +185,20 @@ class _SpectrumAnalyzerState extends ConsumerState<SpectrumAnalyzer>
     if (!active) _ticker.stop();
   }
 
+  /// EQ response at the center of each analyzer band, 0..1 with 0.5 = 0 dB.
+  List<double> _curveFor(int bandCount, List<double> gains) {
+    final ratio = math.pow(_maxHz / _minHz, 1.0 / _bandCount).toDouble();
+    return List<double>.generate(_bandCount, (i) {
+      final hz = _minHz * math.pow(ratio, i + 0.5);
+      final gain = FrequencyUtils.gainAt(bandCount, gains, hz);
+      return (0.5 + gain / 3000.0).clamp(0.0, 1.0);
+    });
+  }
+
   String? get _message {
     switch (_status) {
+      case 'off':
+        return 'Turn on the equalizer to see the spectrum';
       case 'no_session':
         return 'Waiting for a music player...';
       case 'permission_denied':
@@ -188,6 +214,21 @@ class _SpectrumAnalyzerState extends ConsumerState<SpectrumAnalyzer>
   Widget build(BuildContext context) {
     final c = context.eq;
     final message = _message;
+    final isPowered = ref.watch(equalizerProvider.select((s) => s.isEnabled));
+    final bandCount = ref.watch(equalizerProvider.select((s) => s.bandCount));
+    final gains = ref.watch(equalizerProvider.select((s) => s.bandLevels));
+
+    ref.listen<bool>(
+      equalizerProvider.select((s) => s.isEnabled),
+      (previous, next) {
+        if (next) {
+          _start();
+        } else {
+          _stop();
+          setState(() => _status = 'off');
+        }
+      },
+    );
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -216,6 +257,8 @@ class _SpectrumAnalyzerState extends ConsumerState<SpectrumAnalyzer>
                       high: c.accentAlt,
                       off: c.track,
                       peakColor: c.textPrimary,
+                      curve: isPowered ? _curveFor(bandCount, gains) : null,
+                      curveHalo: c.card,
                       repaint: _frame,
                     ),
                   ),
@@ -256,6 +299,8 @@ class _SpectrumPainter extends CustomPainter {
   final Color high;
   final Color off;
   final Color peakColor;
+  final List<double>? curve;
+  final Color curveHalo;
 
   _SpectrumPainter({
     required this.levels,
@@ -264,6 +309,8 @@ class _SpectrumPainter extends CustomPainter {
     required this.high,
     required this.off,
     required this.peakColor,
+    required this.curve,
+    required this.curveHalo,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -305,6 +352,37 @@ class _SpectrumPainter extends CustomPainter {
         canvas.drawRRect(rect, paint);
       }
     }
+
+    // EQ response curve over the bars: it moves as soon as a band changes
+    final points = curve;
+    if (points != null && points.length == bands) {
+      final path = Path();
+      for (int b = 0; b < bands; b++) {
+        final x = (b + 0.5) * slotWidth;
+        final y = 2 + (1 - points[b]) * (size.height - 4);
+        if (b == 0) {
+          path.moveTo(x, y);
+        } else {
+          path.lineTo(x, y);
+        }
+      }
+      final line = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeJoin = StrokeJoin.round
+        ..strokeCap = StrokeCap.round;
+      canvas.drawPath(
+        path,
+        line
+          ..strokeWidth = 4
+          ..color = curveHalo.withValues(alpha: 0.7),
+      );
+      canvas.drawPath(
+        path,
+        line
+          ..strokeWidth = 1.8
+          ..color = peakColor.withValues(alpha: 0.9),
+      );
+    }
   }
 
   @override
@@ -312,5 +390,15 @@ class _SpectrumPainter extends CustomPainter {
       old.low != low ||
       old.high != high ||
       old.off != off ||
-      old.peakColor != peakColor;
+      old.peakColor != peakColor ||
+      old.curveHalo != curveHalo ||
+      !identical(old.curve, curve) && !_sameCurve(old.curve, curve);
+
+  static bool _sameCurve(List<double>? a, List<double>? b) {
+    if (a == null || b == null || a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
 }
