@@ -2,6 +2,33 @@ import 'package:flutter/services.dart';
 
 class NativeEqualizerBridge {
   static const MethodChannel _channel = MethodChannel('com.eqron/equalizer');
+  static const EventChannel _spectrumChannel = EventChannel('com.eqron/spectrum');
+
+  /// Octave-band levels (32 Hz .. 16 kHz), each normalized to 0..1.
+  Stream<List<double>> get spectrumStream =>
+      _spectrumChannel.receiveBroadcastStream().map(
+            (event) =>
+                (event as List).map((v) => (v as num).toDouble()).toList(),
+          );
+
+  /// Returns 'started', 'permission_denied' or 'unavailable'.
+  Future<String> startSpectrum() async {
+    try {
+      return await _channel.invokeMethod<String>('startSpectrum') ??
+          'unavailable';
+    } on PlatformException catch (e) {
+      print('Error startSpectrum: ${e.message}');
+      return 'unavailable';
+    }
+  }
+
+  Future<void> stopSpectrum() async {
+    try {
+      await _channel.invokeMethod('stopSpectrum');
+    } on PlatformException catch (e) {
+      print('Error stopSpectrum: ${e.message}');
+    }
+  }
 
   Future<void> init() async {
     try {

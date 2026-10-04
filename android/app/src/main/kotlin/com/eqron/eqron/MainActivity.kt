@@ -6,14 +6,39 @@ import android.os.Build
 import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import android.util.Log
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.eqron/equalizer"
+    private val SPECTRUM_CHANNEL = "com.eqron/spectrum"
     private val TAG = "EQron:MainActivity"
-    
+    private val REQUEST_RECORD_AUDIO = 2
+
     private val engine = EqualizerEngine.instance
+
+    private var spectrumSink: EventChannel.EventSink? = null
+    private val spectrum = SpectrumAnalyzer { bands -> spectrumSink?.success(bands.toList()) }
+    private var pendingSpectrumResult: MethodChannel.Result? = null
+
+    private fun startSpectrum(): String {
+        val sessions = (listOf(0) + engine.activeSessionIds()).distinct()
+        return if (spectrum.start(sessions)) "started" else "unavailable"
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_RECORD_AUDIO) {
+            val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+            pendingSpectrumResult?.success(if (granted) startSpectrum() else "permission_denied")
+            pendingSpectrumResult = null
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -27,8 +52,33 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, SPECTRUM_CHANNEL).setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    spectrumSink = events
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    spectrumSink = null
+                }
+            }
+        )
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
+                "startSpectrum" -> {
+                    if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                        result.success(startSpectrum())
+                    } else {
+                        pendingSpectrumResult?.success("permission_denied")
+                        pendingSpectrumResult = result
+                        requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_RECORD_AUDIO)
+                    }
+                }
+                "stopSpectrum" -> {
+                    spectrum.stop()
+                    result.success(null)
+                }
                 "init" -> {
                     engine.ensureStateLoaded(applicationContext)
                     engine.init(0)
@@ -120,5 +170,11 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        // Effects stay alive in EqualizerService; only the UI-driven spectrum stops.
+        spectrum.stop()
+        super.onDestroy()
     }
 }

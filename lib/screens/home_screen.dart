@@ -9,6 +9,7 @@ import 'package:eqron/widgets/eq_actions.dart';
 import 'package:eqron/widgets/eq_slider_panel.dart';
 import 'package:eqron/widgets/power_toggle.dart';
 import 'package:eqron/widgets/preset_list.dart';
+import 'package:eqron/widgets/spectrum_analyzer.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -68,21 +69,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildPortrait(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.fromLTRB(16, 12, 16, 12),
+    // Skip the spectrum on short screens so the EQ sliders keep enough height
+    final showSpectrum = MediaQuery.of(context).size.height >= 700;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       child: Column(
         children: [
-          _Header(),
-          SizedBox(height: 16),
-          BandSelector(),
-          SizedBox(height: 14),
-          DolbyEnhancerPanel(isCompact: false),
-          SizedBox(height: 14),
-          Expanded(child: EqSliderPanel(showActions: true)),
-          SizedBox(height: 14),
-          _SectionLabel('PRESETS'),
-          SizedBox(height: 8),
-          PresetList(),
+          const _Header(),
+          const SizedBox(height: 16),
+          const BandSelector(),
+          const SizedBox(height: 14),
+          const DolbyEnhancerPanel(isCompact: false),
+          const SizedBox(height: 14),
+          if (showSpectrum) ...[
+            const SpectrumAnalyzer(),
+            const SizedBox(height: 14),
+          ],
+          const Expanded(child: EqSliderPanel(showActions: true)),
+          const SizedBox(height: 14),
+          const _SectionLabel('PRESETS'),
+          const SizedBox(height: 8),
+          const PresetList(),
         ],
       ),
     );

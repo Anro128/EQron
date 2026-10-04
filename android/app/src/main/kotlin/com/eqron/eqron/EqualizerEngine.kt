@@ -50,6 +50,9 @@ class EqualizerEngine {
 
     fun isEffectEnabled(): Boolean = isEnabled
 
+    /** Session ids that currently have effects attached, global session 0 first. */
+    fun activeSessionIds(): List<Int> = equalizers.keys.sortedBy { if (it == 0) -1 else it }
+
     /**
      * Restores the last state saved by the Flutter UI so the engine works
      * even when the app UI is not running. Runs once per process.
