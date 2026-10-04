@@ -34,8 +34,9 @@ class FrequencyUtils {
     return '0dB';
   }
 
-  /// Interpolates gain levels from one band configuration to another using
-  /// weighted log-frequency distance.
+  /// Resamples a gain curve from one band configuration to another using
+  /// linear interpolation on a log-frequency axis. Unlike a weighted average,
+  /// this keeps peaks and dips instead of pulling them toward the mean.
   static List<double> interpolateGains(
     int fromBandCount,
     List<double> fromGains,
@@ -47,24 +48,30 @@ class FrequencyUtils {
 
     final fromFreqs = getFrequenciesForBandCount(fromBandCount);
     final toFreqs = getFrequenciesForBandCount(toBandCount);
+    final n = min(fromFreqs.length, fromGains.length);
+    if (n == 0) return List<double>.filled(toFreqs.length, 0.0);
+
+    final logFrom = [for (int j = 0; j < n; j++) log(fromFreqs[j].toDouble())];
     final result = <double>[];
 
-    for (int i = 0; i < toFreqs.length; i++) {
-      double targetFreq = toFreqs[i].toDouble();
-      double totalWeight = 0.0;
-      double weightedGainSum = 0.0;
+    for (final freq in toFreqs) {
+      final logTarget = log(freq.toDouble());
+      double gain;
 
-      for (int j = 0; j < fromFreqs.length && j < fromGains.length; j++) {
-        double srcFreq = fromFreqs[j].toDouble();
-        double logDist = (log(targetFreq) / ln10) - (log(srcFreq) / ln10);
-        double weight = 1.0 / (logDist * logDist + 0.05);
-        weightedGainSum += fromGains[j] * weight;
-        totalWeight += weight;
+      if (logTarget <= logFrom.first) {
+        gain = fromGains.first;
+      } else if (logTarget >= logFrom[n - 1]) {
+        gain = fromGains[n - 1];
+      } else {
+        int j = 0;
+        while (j < n - 2 && logTarget > logFrom[j + 1]) {
+          j++;
+        }
+        final t = (logTarget - logFrom[j]) / (logFrom[j + 1] - logFrom[j]);
+        gain = fromGains[j] + (fromGains[j + 1] - fromGains[j]) * t;
       }
 
-      double interpolated =
-          totalWeight > 0 ? (weightedGainSum / totalWeight) : 0.0;
-      result.add(interpolated.clamp(-1500.0, 1500.0));
+      result.add(gain.clamp(-1500.0, 1500.0));
     }
 
     return result;

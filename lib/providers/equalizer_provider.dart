@@ -64,6 +64,11 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
   Timer? _debounceTimer;
   Timer? _throttleTimer;
 
+  // Last user-defined curve (a manual edit or a preset); null until the band
+  // count is switched. Cleared whenever the user changes the curve.
+  int? _anchorCount;
+  List<double>? _anchorGains;
+
   EqualizerNotifier(this._bridge, this._storage)
       : super(EqualizerState(
           isEnabled: false,
@@ -143,11 +148,14 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
   void setBandCount(int count) {
     if (count == state.bandCount) return;
 
-    final interpolatedLevels = FrequencyUtils.interpolateGains(
-      state.bandCount,
-      state.bandLevels,
-      count,
-    );
+    // Always resample from the curve the user actually made, so switching
+    // band counts back and forth never degrades it.
+    _anchorCount ??= state.bandCount;
+    _anchorGains ??= List<double>.from(state.bandLevels);
+
+    final interpolatedLevels = count == _anchorCount
+        ? List<double>.from(_anchorGains!)
+        : FrequencyUtils.interpolateGains(_anchorCount!, _anchorGains!, count);
 
     state = state.copyWith(
       bandCount: count,
@@ -161,9 +169,12 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
   void setBandLevel(int index, double level) {
     if (index < 0 || index >= state.bandLevels.length) return;
     
+    _anchorCount = null;
+    _anchorGains = null;
+
     final newLevels = List<double>.from(state.bandLevels);
     newLevels[index] = level;
-    
+
     state = state.copyWith(
       bandLevels: newLevels,
       currentPresetId: null, // Custom
@@ -187,6 +198,9 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
   }
 
   void applyPreset(EqPreset preset) {
+    _anchorCount = preset.bandCount;
+    _anchorGains = List<double>.from(preset.gains);
+
     final targetGains = FrequencyUtils.interpolateGains(
       preset.bandCount,
       preset.gains,
@@ -202,6 +216,9 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
   }
 
   void resetToFlat() {
+    _anchorCount = null;
+    _anchorGains = null;
+
     final newLevels = List.filled(state.bandCount, 0.0);
     state = state.copyWith(
       bandLevels: newLevels,
