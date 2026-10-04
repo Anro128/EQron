@@ -22,6 +22,7 @@ class EqualizerService : Service() {
         private const val TAG = "EQron:Service"
         private const val CHANNEL_ID = "eqron_equalizer"
         private const val NOTIFICATION_ID = 1
+        private const val ACTION_REPOST = "com.eqron.eqron.action.REPOST_NOTIFICATION"
 
         fun start(context: Context) {
             try {
@@ -44,6 +45,8 @@ class EqualizerService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Also reached when the user swipes the notification away on Android 14+,
+        // where ongoing foreground notifications became dismissible: post it again.
         val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
@@ -66,13 +69,28 @@ class EqualizerService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        return Notification.Builder(this, CHANNEL_ID)
+        // Fires when the notification is dismissed; brings it right back
+        val repost = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, EqualizerService::class.java).setAction(ACTION_REPOST),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentTitle("EQron aktif")
             .setContentText("Equalizer sedang berjalan")
             .setContentIntent(openApp)
+            .setDeleteIntent(repost)
             .setOngoing(true)
-            .build()
+            .setAutoCancel(false)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
+        }
+
+        return builder.build()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

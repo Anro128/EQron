@@ -29,8 +29,13 @@ class _SpectrumAnalyzerState extends ConsumerState<SpectrumAnalyzer>
   // Band layout of the native analyzer (50 Hz .. 16 kHz, log-spaced)
   static const double _minHz = 50.0;
   static const double _maxHz = 16000.0;
+  // Same scale as MAX_DB in SpectrumAnalyzer.kt: a full bar is this many dB
+  static const double _fullScaleDb = 45.0;
 
   final List<double> _target = List.filled(_bandCount, 0.0);
+  final List<double> _adjusted = List.filled(_bandCount, 0.0);
+  // EQ gain per band as a bar-height offset; refreshed on every build
+  List<double> _eqOffset = List.filled(_bandCount, 0.0);
   final List<double> _level = List.filled(_bandCount, 0.0);
   final List<double> _peak = List.filled(_bandCount, 0.0);
   final List<int> _hold = List.filled(_bandCount, 0);
@@ -160,11 +165,24 @@ class _SpectrumAnalyzerState extends ConsumerState<SpectrumAnalyzer>
     final stale = DateTime.now().difference(_lastEvent) > _staleAfter;
     var active = false;
 
+    // The capture is taken before the equalizer, so apply the EQ curve here.
+    // This is an approximation of the equalized output, not a measurement.
+    // The offset fades in with the signal so silence stays silent.
     for (int i = 0; i < _bandCount; i++) {
-      final target = stale ? 0.0 : _target[i];
+      final raw = stale ? 0.0 : _target[i];
+      _adjusted[i] =
+          (raw + _eqOffset[i] * math.min(1.0, raw / 0.05)).clamp(0.0, 1.0);
+    }
+
+    for (int i = 0; i < _bandCount; i++) {
+      // Blend with the neighbours so the profile has no needle-like spikes
+      final left = _adjusted[math.max(0, i - 1)];
+      final right = _adjusted[math.min(_bandCount - 1, i + 1)];
+      final target = 0.25 * left + 0.5 * _adjusted[i] + 0.25 * right;
+
       var level = _level[i];
-      // Fast attack, slow release (tuned for ~30 fps)
-      level += (target - level) * (target > level ? 0.6 : 0.2);
+      // Gentle attack and release (tuned for ~30 fps)
+      level += (target - level) * (target > level ? 0.35 : 0.12);
       _level[i] = level;
 
       if (level >= _peak[i]) {
@@ -185,13 +203,12 @@ class _SpectrumAnalyzerState extends ConsumerState<SpectrumAnalyzer>
     if (!active) _ticker.stop();
   }
 
-  /// EQ response at the center of each analyzer band, 0..1 with 0.5 = 0 dB.
-  List<double> _curveFor(int bandCount, List<double> gains) {
+  /// EQ gain in dB at the center of each analyzer band.
+  List<double> _gainDbPerBand(int bandCount, List<double> gains) {
     final ratio = math.pow(_maxHz / _minHz, 1.0 / _bandCount).toDouble();
     return List<double>.generate(_bandCount, (i) {
       final hz = _minHz * math.pow(ratio, i + 0.5);
-      final gain = FrequencyUtils.gainAt(bandCount, gains, hz);
-      return (0.5 + gain / 3000.0).clamp(0.0, 1.0);
+      return FrequencyUtils.gainAt(bandCount, gains, hz) / 100.0;
     });
   }
 
@@ -217,6 +234,11 @@ class _SpectrumAnalyzerState extends ConsumerState<SpectrumAnalyzer>
     final isPowered = ref.watch(equalizerProvider.select((s) => s.isEnabled));
     final bandCount = ref.watch(equalizerProvider.select((s) => s.bandCount));
     final gains = ref.watch(equalizerProvider.select((s) => s.bandLevels));
+
+    final gainDb = _gainDbPerBand(bandCount, gains);
+    _eqOffset = [for (final db in gainDb) db / _fullScaleDb];
+    // Curve overlay: 0..1 with 0.5 = 0 dB (the EQ range is +/-15 dB)
+    final curve = [for (final db in gainDb) (0.5 + db / 30.0).clamp(0.0, 1.0)];
 
     ref.listen<bool>(
       equalizerProvider.select((s) => s.isEnabled),
@@ -257,7 +279,7 @@ class _SpectrumAnalyzerState extends ConsumerState<SpectrumAnalyzer>
                       high: c.accentAlt,
                       off: c.track,
                       peakColor: c.textPrimary,
-                      curve: isPowered ? _curveFor(bandCount, gains) : null,
+                      curve: isPowered ? curve : null,
                       curveHalo: c.card,
                       repaint: _frame,
                     ),

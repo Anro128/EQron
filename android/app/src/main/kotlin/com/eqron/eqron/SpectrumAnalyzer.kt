@@ -25,7 +25,7 @@ class SpectrumAnalyzer(private val onBands: (DoubleArray) -> Unit) {
         private const val MIN_HZ = 50.0
         private const val MAX_HZ = 16000.0
         private const val MAX_DB = 45.0 // 8-bit FFT magnitude tops out around 181
-        private const val TILT_TOTAL = 0.22 // highs carry less energy; even out the display
+        private const val TILT_TOTAL = 0.6 // highs carry less energy; boost them up to +60%
 
         /** Width ratio between the edges of neighbouring log-spaced bands. */
         private val BAND_RATIO = (MAX_HZ / MIN_HZ).pow(1.0 / BAND_COUNT)
@@ -104,15 +104,18 @@ class SpectrumAnalyzer(private val onBands: (DoubleArray) -> Unit) {
                 lastBin = nearest
             }
 
-            // fft[0] = DC, fft[1] = Nyquist, then (real, imaginary) pairs for bins 1..n/2-1
-            var peak = 0.0
+            // fft[0] = DC, fft[1] = Nyquist, then (real, imaginary) pairs for bins 1..n/2-1.
+            // The mean over the band is smoother than its single loudest bin.
+            var sum = 0.0
             for (k in firstBin..lastBin) {
-                val magnitude = hypot(fft[2 * k].toDouble(), fft[2 * k + 1].toDouble())
-                if (magnitude > peak) peak = magnitude
+                sum += hypot(fft[2 * k].toDouble(), fft[2 * k + 1].toDouble())
             }
+            val mean = sum / (lastBin - firstBin + 1)
 
-            val db = 20.0 * log10(peak + 1.0)
-            (db / MAX_DB + TILT_TOTAL * i / (BAND_COUNT - 1)).coerceIn(0.0, 1.0)
+            // Tilt scales the level, so silence stays at zero
+            val db = 20.0 * log10(mean + 1.0)
+            val tilt = 1.0 + TILT_TOTAL * i / (BAND_COUNT - 1)
+            (db / MAX_DB * tilt).coerceIn(0.0, 1.0)
         }
     }
 }
