@@ -20,6 +20,7 @@ class SpectrumAnalyzer(private val onBands: (DoubleArray) -> Unit) {
 
     companion object {
         private const val TAG = "EQron:Spectrum"
+        private const val CAPTURE_RATE_MILLIHZ = 12_000 // ~12 updates per second
         private const val BAND_COUNT = 28
         private const val MIN_HZ = 50.0
         private const val MAX_HZ = 16000.0
@@ -43,7 +44,10 @@ class SpectrumAnalyzer(private val onBands: (DoubleArray) -> Unit) {
         }
     }
 
-    /** Tries each session in order; returns true as soon as one can be captured. */
+    /**
+     * Tries each session in order; returns true as soon as one can be captured.
+     * Callers should pass player sessions only, never the global session 0.
+     */
     @Synchronized
     fun start(sessionIds: List<Int>): Boolean {
         stop()
@@ -54,7 +58,7 @@ class SpectrumAnalyzer(private val onBands: (DoubleArray) -> Unit) {
                 v.captureSize = Visualizer.getCaptureSizeRange()[1]
                 v.setDataCaptureListener(
                     listener,
-                    Visualizer.getMaxCaptureRate() / 2,
+                    minOf(CAPTURE_RATE_MILLIHZ, Visualizer.getMaxCaptureRate()),
                     false,
                     true
                 )

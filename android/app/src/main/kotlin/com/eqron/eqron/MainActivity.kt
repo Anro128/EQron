@@ -23,7 +23,11 @@ class MainActivity : FlutterActivity() {
     private var pendingSpectrumResult: MethodChannel.Result? = null
 
     private fun startSpectrum(): String {
-        val sessions = (listOf(0) + engine.activeSessionIds()).distinct()
+        // Never attach to the global session 0: an effect there forces the whole
+        // output through the effect chain and can make audio stutter on some
+        // devices. Only capture a player's own session, newest first.
+        val sessions = engine.activeSessionIds().filter { it != 0 }.reversed()
+        if (sessions.isEmpty()) return "no_session"
         return if (spectrum.start(sessions)) "started" else "unavailable"
     }
 
