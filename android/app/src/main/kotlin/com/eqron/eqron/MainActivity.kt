@@ -1,5 +1,8 @@
 package com.eqron.eqron
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -10,20 +13,36 @@ class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.eqron/equalizer"
     private val TAG = "EQron:MainActivity"
     
-    private val engine = EqualizerEngine()
+    private val engine = EqualizerEngine.instance
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "init" -> {
+                    engine.ensureStateLoaded(applicationContext)
                     engine.init(0)
                     result.success(null)
                 }
                 "setEnabled" -> {
                     val enabled = call.argument<Boolean>("enabled") ?: false
                     engine.setEnabled(enabled)
+                    if (enabled) {
+                        engine.init(0)
+                        EqualizerService.start(applicationContext)
+                    } else {
+                        EqualizerService.stop(applicationContext)
+                    }
                     result.success(null)
                 }
                 "setBandLevel" -> {
@@ -101,21 +120,5 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
-
-        // Setup session receiver
-        AudioSessionReceiver.onSessionOpen = { sessionId, _ ->
-            engine.init(sessionId)
-        }
-        
-        AudioSessionReceiver.onSessionClose = { sessionId, _ ->
-            engine.releaseSession(sessionId)
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        engine.release()
-        AudioSessionReceiver.onSessionOpen = null
-        AudioSessionReceiver.onSessionClose = null
     }
 }
