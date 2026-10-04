@@ -62,6 +62,7 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
   final NativeEqualizerBridge _bridge;
   final StorageService _storage;
   Timer? _debounceTimer;
+  Timer? _throttleTimer;
 
   EqualizerNotifier(this._bridge, this._storage)
       : super(EqualizerState(
@@ -168,8 +169,8 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
       currentPresetId: null, // Custom
     );
 
-    // Push audio update to native engine instantly for butter-smooth real-time feel
-    _bridge.setBandLevel(index, level.toInt());
+    // Coalesce rapid drag events into at most one native update per ~33 ms
+    _throttleTimer ??= Timer(const Duration(milliseconds: 33), _flushBandLevels);
 
     // Debounce disk I/O only
     if (_debounceTimer?.isActive ?? false) {
@@ -178,6 +179,11 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {
       _saveState();
     });
+  }
+
+  void _flushBandLevels() {
+    _throttleTimer = null;
+    _bridge.setBandLevels(state.bandLevels.map((e) => e.toInt()).toList());
   }
 
   void applyPreset(EqPreset preset) {
@@ -238,8 +244,9 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
 
   @override
   void dispose() {
-    _bridge.release();
+    // Native engine lives in a foreground service; don't release it with the UI.
     _debounceTimer?.cancel();
+    _throttleTimer?.cancel();
     super.dispose();
   }
 }

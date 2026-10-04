@@ -1,11 +1,13 @@
 package com.eqron.eqron
 
+import android.content.Context
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.Virtualizer
 import android.util.Log
 import java.util.concurrent.ConcurrentHashMap
+import org.json.JSONObject
 import kotlin.math.abs
 
 /**
@@ -18,7 +20,8 @@ class EqualizerEngine {
     private val bassBoosts = ConcurrentHashMap<Int, BassBoost>()
     private val virtualizers = ConcurrentHashMap<Int, Virtualizer>()
     private val loudnessEnhancers = ConcurrentHashMap<Int, LoudnessEnhancer>()
-    
+    private val appliedLevels = ConcurrentHashMap<Int, ShortArray>()
+
     private var isEnabled = false
     private var currentBandCount = 5
     private var bassBoostStrength: Short = 0 // 0 to 1000
@@ -28,7 +31,16 @@ class EqualizerEngine {
     // Store requested custom levels before they are interpolated and applied
     private var customBandLevels = IntArray(15) { 0 }
     
+    @Volatile
+    private var stateLoaded = false
+
     companion object {
+        /** Process-wide engine, shared by the activity, the receiver and the foreground service. */
+        val instance: EqualizerEngine by lazy { EqualizerEngine() }
+
+        private const val FLUTTER_PREFS = "FlutterSharedPreferences"
+        private const val APP_STATE_KEY = "flutter.app_state"
+
         val FREQ_MAP_3 = intArrayOf(60, 1000, 14000)
         val FREQ_MAP_5 = intArrayOf(60, 230, 910, 3600, 14000)
         val FREQ_MAP_7 = intArrayOf(60, 170, 400, 1000, 2400, 6000, 14000)
@@ -36,14 +48,41 @@ class EqualizerEngine {
         val FREQ_MAP_15 = intArrayOf(25, 40, 63, 100, 160, 250, 400, 630, 1000, 1600, 2500, 4000, 6300, 10000, 16000)
     }
 
+    fun isEffectEnabled(): Boolean = isEnabled
+
+    /**
+     * Restores the last state saved by the Flutter UI so the engine works
+     * even when the app UI is not running. Runs once per process.
+     */
+    @Synchronized
+    fun ensureStateLoaded(context: Context) {
+        if (stateLoaded) return
+        stateLoaded = true
+        try {
+            val prefs = context.applicationContext.getSharedPreferences(FLUTTER_PREFS, Context.MODE_PRIVATE)
+            val json = prefs.getString(APP_STATE_KEY, null) ?: return
+            val obj = JSONObject(json)
+            val bandCount = obj.optInt("bandCount", 5)
+            val gains = obj.optJSONArray("currentGains")
+            setBandCount(bandCount)
+            applyBandLevels(IntArray(bandCount) { gains?.optDouble(it, 0.0)?.toInt() ?: 0 })
+            setBassBoost(obj.optInt("bassBoost", 0))
+            setVirtualizer(obj.optInt("virtualizer", 0))
+            setLoudness(obj.optInt("loudness", 0))
+            setEnabled(obj.optBoolean("isEnabled", false))
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to restore saved state", e)
+        }
+    }
+
     /**
      * Initializes Audio Effects for the given session ID.
      */
+    @Synchronized
     fun init(sessionId: Int) {
         try {
             if (!equalizers.containsKey(sessionId)) {
                 val eq = Equalizer(0, sessionId)
-                eq.enabled = isEnabled
                 equalizers[sessionId] = eq
                 applyAllCustomBandsToNative()
                 Log.d(TAG, "Initialized Equalizer for session: $sessionId")
@@ -55,7 +94,6 @@ class EqualizerEngine {
         try {
             if (!bassBoosts.containsKey(sessionId)) {
                 val bb = BassBoost(0, sessionId)
-                bb.enabled = isEnabled
                 if (bb.strengthSupported) {
                     bb.setStrength(bassBoostStrength)
                 }
@@ -69,7 +107,6 @@ class EqualizerEngine {
         try {
             if (!virtualizers.containsKey(sessionId)) {
                 val virt = Virtualizer(0, sessionId)
-                virt.enabled = isEnabled
                 if (virt.strengthSupported) {
                     virt.setStrength(virtualizerStrength)
                 }
@@ -83,7 +120,6 @@ class EqualizerEngine {
         try {
             if (!loudnessEnhancers.containsKey(sessionId)) {
                 val le = LoudnessEnhancer(sessionId)
-                le.enabled = isEnabled
                 le.setTargetGain(loudnessGain)
                 loudnessEnhancers[sessionId] = le
                 Log.d(TAG, "Initialized LoudnessEnhancer for session: $sessionId")
@@ -91,17 +127,39 @@ class EqualizerEngine {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize LoudnessEnhancer for session $sessionId", e)
         }
+
+        applyEnabledState()
     }
 
     /**
      * Enable or disable audio effects globally.
      */
+    @Synchronized
     fun setEnabled(enabled: Boolean) {
         isEnabled = enabled
-        equalizers.values.forEach { try { it.enabled = enabled } catch (e: Exception) {} }
-        bassBoosts.values.forEach { try { it.enabled = enabled } catch (e: Exception) {} }
-        virtualizers.values.forEach { try { it.enabled = enabled } catch (e: Exception) {} }
-        loudnessEnhancers.values.forEach { try { it.enabled = enabled } catch (e: Exception) {} }
+        applyEnabledState()
+    }
+
+    /**
+     * Session 0 is the global mix. If a player has its own session, the global
+     * effects are switched off so the same audio isn't equalized twice.
+     */
+    private fun hasAppSession(): Boolean = equalizers.keys.any { it != 0 }
+
+    private fun shouldRun(sessionId: Int): Boolean =
+        isEnabled && !(sessionId == 0 && hasAppSession())
+
+    /**
+     * Applies the on/off state per effect. Bass boost, virtualizer and loudness
+     * only run while their strength is above zero, since an enabled effect at
+     * zero strength can still color the signal on some chipsets.
+     */
+    @Synchronized
+    private fun applyEnabledState() {
+        equalizers.forEach { (id, e) -> try { e.enabled = shouldRun(id) } catch (ex: Exception) {} }
+        bassBoosts.forEach { (id, e) -> try { e.enabled = shouldRun(id) && bassBoostStrength > 0 } catch (ex: Exception) {} }
+        virtualizers.forEach { (id, e) -> try { e.enabled = shouldRun(id) && virtualizerStrength > 0 } catch (ex: Exception) {} }
+        loudnessEnhancers.forEach { (id, e) -> try { e.enabled = shouldRun(id) && loudnessGain > 0 } catch (ex: Exception) {} }
     }
 
     /**
@@ -118,6 +176,7 @@ class EqualizerEngine {
                 Log.e(TAG, "Error setting BassBoost strength", e)
             }
         }
+        applyEnabledState()
     }
 
     /**
@@ -134,6 +193,7 @@ class EqualizerEngine {
                 Log.e(TAG, "Error setting Virtualizer strength", e)
             }
         }
+        applyEnabledState()
     }
 
     /**
@@ -148,6 +208,7 @@ class EqualizerEngine {
                 Log.e(TAG, "Error setting Loudness gain", e)
             }
         }
+        applyEnabledState()
     }
 
     /**
@@ -283,11 +344,17 @@ class EqualizerEngine {
             }
         }
 
-        equalizers.values.forEach { instance ->
+        equalizers.forEach { (sessionId, instance) ->
             try {
+                // Only touch bands whose level actually changed; rewriting every
+                // band on each slider tick causes clicks and extra IPC load.
+                val previous = appliedLevels[sessionId]
                 for (i in 0 until nativeBands) {
-                    instance.setBandLevel(i.toShort(), nativeLevels[i])
+                    if (previous == null || previous.size != nativeBands || previous[i] != nativeLevels[i]) {
+                        instance.setBandLevel(i.toShort(), nativeLevels[i])
+                    }
                 }
+                appliedLevels[sessionId] = nativeLevels.copyOf()
             } catch (e: Exception) {
                 Log.e(TAG, "Error applying native levels", e)
             }
@@ -303,6 +370,8 @@ class EqualizerEngine {
             bassBoosts.remove(sessionId)?.release()
             virtualizers.remove(sessionId)?.release()
             loudnessEnhancers.remove(sessionId)?.release()
+            appliedLevels.remove(sessionId)
+            applyEnabledState()
             Log.d(TAG, "Released audio effects for session: $sessionId")
         } catch (e: Exception) {
             Log.e(TAG, "Error releasing audio effects for session $sessionId", e)
@@ -322,5 +391,6 @@ class EqualizerEngine {
         bassBoosts.clear()
         virtualizers.clear()
         loudnessEnhancers.clear()
+        appliedLevels.clear()
     }
 }
