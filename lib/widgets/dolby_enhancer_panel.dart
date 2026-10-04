@@ -61,7 +61,7 @@ class DolbyEnhancerPanel extends ConsumerWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     _Dial(
-                      size: 44,
+                      size: 46,
                       strokeWidth: 5,
                       fontSize: 10.5,
                       value: spec.value,
@@ -110,7 +110,7 @@ class DolbyEnhancerPanel extends ConsumerWidget {
                 child: Column(
                   children: [
                     _Dial(
-                      size: 68,
+                      size: 72,
                       strokeWidth: 6,
                       fontSize: 14,
                       value: controls[i].value,
@@ -118,7 +118,7 @@ class DolbyEnhancerPanel extends ConsumerWidget {
                       isEnabled: isEnabled,
                       onChanged: controls[i].onChanged,
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Text(
@@ -158,11 +158,15 @@ class _DialSpec {
   });
 }
 
-/// Circular knob, 0 to 1000. Drag up/right to increase, down/left to decrease.
-/// Taps are ignored so the value never jumps by accident.
-class _Dial extends StatelessWidget {
-  static const double _max = 1000;
-  static const double _dragRange = 180; // logical pixels for the full range
+/// Rotary knob, 0 to 1000, like a regular potentiometer: 0 sits at the bottom
+/// left (7 o'clock) and the maximum at the bottom right (5 o'clock), with a
+/// 90 degree gap at the bottom. Turn the knob by dragging your finger around
+/// it. The value follows the change in finger angle, so touching the knob
+/// never makes it jump, and plain taps are ignored.
+class _Dial extends StatefulWidget {
+  static const double max = 1000;
+  static const double startAngle = 3 * math.pi / 4; // bottom left
+  static const double sweepAngle = 3 * math.pi / 2; // 270 degrees
 
   final double size;
   final double strokeWidth;
@@ -183,36 +187,85 @@ class _Dial extends StatelessWidget {
   });
 
   @override
+  State<_Dial> createState() => _DialState();
+}
+
+class _DialState extends State<_Dial> {
+  double? _lastAngle;
+  // Unrounded value so slow turns are not lost to int rounding
+  double _accumulated = 0;
+
+  double _angleOf(Offset local) {
+    final center = Offset(widget.size / 2, widget.size / 2);
+    return math.atan2(local.dy - center.dy, local.dx - center.dx);
+  }
+
+  bool _nearCenter(Offset local) {
+    final center = Offset(widget.size / 2, widget.size / 2);
+    return (local - center).distance < widget.size * 0.12;
+  }
+
+  void _onPanStart(DragStartDetails details) {
+    _accumulated = widget.value.toDouble();
+    _lastAngle = _nearCenter(details.localPosition)
+        ? null
+        : _angleOf(details.localPosition);
+  }
+
+  void _onPanUpdate(DragUpdateDetails details) {
+    // The angle is meaningless right at the center
+    if (_nearCenter(details.localPosition)) {
+      _lastAngle = null;
+      return;
+    }
+
+    final angle = _angleOf(details.localPosition);
+    final last = _lastAngle;
+    _lastAngle = angle;
+    if (last == null) return;
+
+    // Shortest signed angle change, positive = clockwise
+    var delta = angle - last;
+    while (delta > math.pi) {
+      delta -= 2 * math.pi;
+    }
+    while (delta < -math.pi) {
+      delta += 2 * math.pi;
+    }
+
+    _accumulated = (_accumulated + delta / _Dial.sweepAngle * _Dial.max)
+        .clamp(0.0, _Dial.max);
+    final next = _accumulated.round();
+    if (next != widget.value) widget.onChanged(next);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final c = context.eq;
-    final progress = (value / _max).clamp(0.0, 1.0);
-    final ringColor = isEnabled ? color : c.textMuted;
+    final progress = (widget.value / _Dial.max).clamp(0.0, 1.0);
+    final ringColor = widget.isEnabled ? widget.color : c.textMuted;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onPanUpdate: isEnabled
-          ? (details) {
-              final delta = (-details.delta.dy + details.delta.dx) *
-                  (_max / _dragRange);
-              onChanged((value + delta).round().clamp(0, _max.toInt()));
-            }
-          : null,
+      onPanStart: widget.isEnabled ? _onPanStart : null,
+      onPanUpdate: widget.isEnabled ? _onPanUpdate : null,
       child: SizedBox(
-        width: size,
-        height: size,
+        width: widget.size,
+        height: widget.size,
         child: CustomPaint(
           painter: _DialPainter(
             progress: progress,
-            strokeWidth: strokeWidth,
+            strokeWidth: widget.strokeWidth,
             trackColor: c.track,
             progressColor: ringColor,
+            knobFill: c.card,
           ),
           child: Center(
             child: Text(
-              '${(value / 10).round()}%',
+              '${(widget.value / 10).round()}%',
               style: TextStyle(
-                color: isEnabled ? c.textPrimary : c.textMuted,
-                fontSize: fontSize,
+                color: widget.isEnabled ? c.textPrimary : c.textMuted,
+                fontSize: widget.fontSize,
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -228,33 +281,47 @@ class _DialPainter extends CustomPainter {
   final double strokeWidth;
   final Color trackColor;
   final Color progressColor;
+  final Color knobFill;
 
   _DialPainter({
     required this.progress,
     required this.strokeWidth,
     required this.trackColor,
     required this.progressColor,
+    required this.knobFill,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    final arcRect = rect.deflate(strokeWidth / 2);
+    // Leave room for the pointer dot that sits on the ring
+    final inset = strokeWidth;
+    final arcRect = (Offset.zero & size).deflate(inset);
 
     final track = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..color = trackColor;
-    canvas.drawCircle(arcRect.center, arcRect.width / 2, track);
-
-    if (progress <= 0) return;
-
-    final arc = Paint()
-      ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeWidth = strokeWidth
-      ..color = progressColor;
-    canvas.drawArc(arcRect, -math.pi / 2, 2 * math.pi * progress, false, arc);
+      ..color = trackColor;
+    canvas.drawArc(
+        arcRect, _Dial.startAngle, _Dial.sweepAngle, false, track);
+
+    if (progress > 0) {
+      final arc = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = strokeWidth
+        ..color = progressColor;
+      canvas.drawArc(arcRect, _Dial.startAngle,
+          _Dial.sweepAngle * progress, false, arc);
+    }
+
+    // Pointer dot at the current position
+    final angle = _Dial.startAngle + _Dial.sweepAngle * progress;
+    final radius = arcRect.width / 2;
+    final dot = arcRect.center +
+        Offset(math.cos(angle) * radius, math.sin(angle) * radius);
+    canvas.drawCircle(dot, strokeWidth * 0.95, Paint()..color = progressColor);
+    canvas.drawCircle(dot, strokeWidth * 0.45, Paint()..color = knobFill);
   }
 
   @override
@@ -262,5 +329,6 @@ class _DialPainter extends CustomPainter {
       old.progress != progress ||
       old.strokeWidth != strokeWidth ||
       old.trackColor != trackColor ||
-      old.progressColor != progressColor;
+      old.progressColor != progressColor ||
+      old.knobFill != knobFill;
 }
