@@ -1,28 +1,22 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:eqron/providers/equalizer_provider.dart';
 import 'package:eqron/screens/home_screen.dart';
+import 'package:eqron/theme/app_theme.dart';
 
-class EqronApp extends StatelessWidget {
+class EqronApp extends ConsumerWidget {
   const EqronApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(equalizerProvider.select((s) => s.themeMode));
+
     return MaterialApp(
       title: 'EQron',
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF0A0A0F),
-        primaryColor: const Color(0xFF00E5FF),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF00E5FF),
-          secondary: Color(0xFF00FF88),
-          surface: Color(0xFF1A1A2E),
-        ),
-        textTheme: GoogleFonts.rajdhaniTextTheme(
-          ThemeData.dark().textTheme,
-        ),
-        useMaterial3: true,
-      ),
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: themeMode == 'light' ? ThemeMode.light : ThemeMode.dark,
       home: const HomeScreen(),
     );
   }

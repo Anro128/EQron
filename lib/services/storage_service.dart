@@ -11,6 +11,7 @@ class AppState {
   final int bassBoost; // 0 to 1000
   final int virtualizer; // 0 to 1000
   final int loudness; // 0 to 1000
+  final String themeMode; // 'light', 'dark'
 
   AppState({
     required this.isEnabled,
@@ -21,6 +22,7 @@ class AppState {
     this.bassBoost = 0,
     this.virtualizer = 0,
     this.loudness = 0,
+    this.themeMode = 'dark',
   });
 
   Map<String, dynamic> toJson() => {
@@ -32,6 +34,7 @@ class AppState {
         'bassBoost': bassBoost,
         'virtualizer': virtualizer,
         'loudness': loudness,
+        'themeMode': themeMode,
       };
 
   factory AppState.fromJson(Map<String, dynamic> json) => AppState(
@@ -45,6 +48,7 @@ class AppState {
         bassBoost: json['bassBoost'] as int? ?? 0,
         virtualizer: json['virtualizer'] as int? ?? 0,
         loudness: json['loudness'] as int? ?? 0,
+        themeMode: json['themeMode'] as String? ?? 'dark',
       );
 }
 

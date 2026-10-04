@@ -24,6 +24,23 @@ class FrequencyUtils {
     return '${hz}Hz';
   }
 
+  /// Compact label without unit, e.g. 31, 250, 1k, 6.3k.
+  static String formatFrequencyShort(int hz) {
+    if (hz < 1000) return '$hz';
+    final khz = hz / 1000.0;
+    if (khz == khz.toInt().toDouble()) return '${khz.toInt()}k';
+    return '${khz.toStringAsFixed(1)}k';
+  }
+
+  /// Gain in dB with sign and one decimal, without unit, e.g. +3.1, -0.6, 0.0.
+  static String formatGainValue(double millibels) {
+    final db = millibels / 100.0;
+    final text = db.toStringAsFixed(1);
+    if (db > 0.04) return '+$text';
+    if (db < -0.04) return text;
+    return '0.0';
+  }
+
   static String formatGain(double millibels) {
     double db = millibels / 100.0;
     if (db > 0) {

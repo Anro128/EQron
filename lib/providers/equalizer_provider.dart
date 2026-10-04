@@ -16,6 +16,7 @@ class EqualizerState {
   final int bassBoost; // 0 to 1000
   final int virtualizer; // 0 to 1000
   final int loudness; // 0 to 1000
+  final String themeMode; // 'light', 'dark'
 
   EqualizerState({
     required this.isEnabled,
@@ -27,6 +28,7 @@ class EqualizerState {
     this.bassBoost = 0,
     this.virtualizer = 0,
     this.loudness = 0,
+    this.themeMode = 'dark',
   });
 
   static const _sentinel = Object();
@@ -41,6 +43,7 @@ class EqualizerState {
     int? bassBoost,
     int? virtualizer,
     int? loudness,
+    String? themeMode,
   }) {
     return EqualizerState(
       isEnabled: isEnabled ?? this.isEnabled,
@@ -54,6 +57,7 @@ class EqualizerState {
       bassBoost: bassBoost ?? this.bassBoost,
       virtualizer: virtualizer ?? this.virtualizer,
       loudness: loudness ?? this.loudness,
+      themeMode: themeMode ?? this.themeMode,
     );
   }
 }
@@ -91,6 +95,7 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
         bassBoost: appState.bassBoost,
         virtualizer: appState.virtualizer,
         loudness: appState.loudness,
+        themeMode: appState.themeMode,
         isInitialized: true,
       );
       await _applyOrientation(appState.appOrientation);
@@ -104,6 +109,13 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
       state = state.copyWith(isInitialized: true);
       await _bridge.setBandCount(5);
     }
+  }
+
+  void toggleTheme() {
+    state = state.copyWith(
+      themeMode: state.themeMode == 'light' ? 'dark' : 'light',
+    );
+    _saveState();
   }
 
   void setOrientation(String mode) {
@@ -256,6 +268,7 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
       bassBoost: state.bassBoost,
       virtualizer: state.virtualizer,
       loudness: state.loudness,
+      themeMode: state.themeMode,
     ));
   }
 
