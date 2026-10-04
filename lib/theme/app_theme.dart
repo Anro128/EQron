@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 /// Design tokens shared by every widget. Light = "Porcelain White",
-/// Dark = "Titanium Slate".
+/// Dark = "Titanium Slate". Both use an Electric Cobalt accent.
 class EqColors extends ThemeExtension<EqColors> {
   final Color background;
   final Color card;
@@ -35,8 +35,8 @@ class EqColors extends ThemeExtension<EqColors> {
     card: Color(0xFFFFFFFF),
     tile: Color(0xFFFFFFFF),
     border: Color(0xFFE2E8F0),
-    accent: Color(0xFF0284C7),
-    accentAlt: Color(0xFF0EA5E9),
+    accent: Color(0xFF0066FF), // Electric Cobalt
+    accentAlt: Color(0xFF2E86FF),
     textPrimary: Color(0xFF0F172A),
     textSecondary: Color(0xFF64748B),
     textMuted: Color(0xFF94A3B8),
@@ -49,8 +49,9 @@ class EqColors extends ThemeExtension<EqColors> {
     card: Color(0xFF252B37),
     tile: Color(0xFF2B3240),
     border: Color(0xFF343C4B),
-    accent: Color(0xFF38BDF8),
-    accentAlt: Color(0xFF7DD3FC),
+    // Lighter tint of Electric Cobalt: #0066FF alone is too dim on slate
+    accent: Color(0xFF3D85FF),
+    accentAlt: Color(0xFF6FA4FF),
     textPrimary: Color(0xFFF8FAFC),
     textSecondary: Color(0xFF9AA6B8),
     textMuted: Color(0xFF6B7788),
