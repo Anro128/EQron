@@ -190,7 +190,7 @@ class _SpectrumAnalyzerState extends ConsumerState<SpectrumAnalyzer>
     final message = _message;
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: c.card,
         borderRadius: BorderRadius.circular(24),
@@ -198,7 +198,7 @@ class _SpectrumAnalyzerState extends ConsumerState<SpectrumAnalyzer>
         boxShadow: c.softShadow,
       ),
       child: SizedBox(
-        height: 64,
+        height: 52,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: _status == 'permission_denied' ? _start : null,

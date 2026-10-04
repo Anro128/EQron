@@ -88,44 +88,44 @@ class DolbyEnhancerPanel extends ConsumerWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: c.card,
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(24),
         border: Border.all(color: c.border),
         boxShadow: c.softShadow,
       ),
       child: Row(
         children: [
           for (int i = 0; i < controls.length; i++) ...[
-            if (i > 0) const SizedBox(width: 10),
+            if (i > 0) const SizedBox(width: 8),
             Expanded(
               child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
                 decoration: BoxDecoration(
                   color: c.tile,
-                  borderRadius: BorderRadius.circular(22),
+                  borderRadius: BorderRadius.circular(18),
                   border: Border.all(color: c.border),
                 ),
                 child: Column(
                   children: [
                     _Dial(
-                      size: 72,
-                      strokeWidth: 6,
-                      fontSize: 14,
+                      size: 54,
+                      strokeWidth: 5,
+                      fontSize: 11.5,
                       value: controls[i].value,
                       color: controls[i].color,
                       isEnabled: isEnabled,
                       onChanged: controls[i].onChanged,
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 5),
                     FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Text(
                         controls[i].label,
                         style: TextStyle(
                           color: c.textSecondary,
-                          fontSize: 10.5,
+                          fontSize: 9.5,
                           fontWeight: FontWeight.w700,
                           letterSpacing: 0.8,
                         ),
